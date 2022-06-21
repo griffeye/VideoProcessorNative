@@ -547,6 +547,10 @@ static vx_error vx_decode_frame(vx_video* me, static AVFrame* out_frame_buffer[5
 	// The decoder may still hold a couple of cached frames, so even if the end of the file has been
 	// reached and no packet is returned, it still needs to be sent in order to flush the decoder
 	int result = avcodec_send_packet(codec_ctx, packet);
+	if (result == AVERROR_EOF) {
+		ret = VX_ERR_EOF;
+		goto cleanup;
+	}
 	if (result != 0 && result != AVERROR(EAGAIN) && result != AVERROR_EOF) {
 		ret = VX_ERR_DECODE_VIDEO;
 		goto cleanup;
