@@ -9,6 +9,17 @@ Requires, at minimum, an LGPL static build of ffmpeg v5.1.x. This is not provide
 
 ```
 msbuild VideoProcessorNative.sln -restore -target:"Clean;Rebuild" -property:"Platform=x64;Configuration=Release"
+
+
+sudo apt install -y openssh-server build-essential gdb rsync make zip
+wget https://github.com/microsoft/CMake/releases/download/v3.19.4268486/cmake-3.19.4268486-MSVC_2-Linux-x64.sh
+chmod +x cmake-3.19.4268486-MSVC_2-Linux-x64.sh
+sudo ./cmake-3.19.4268486-MSVC_2-Linux-x64.sh --skip-license --prefix=/usr
+
+
+cmake . -B build_linux/
+nuget restore packages.config -SolutionDirectory build_linux/ -ConfigFile ~/.nuget/NuGet/NuGet.Config
+cmake --build build_linux/
 ```
 
 ## Architecture

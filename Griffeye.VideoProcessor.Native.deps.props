@@ -1,0 +1,6 @@
+<!-- Enable NuGet TargetMonikers fallback to vcxproj -->
+<Project>
+    <PropertyGroup>
+        <_NuGetTargetFallbackMoniker>$(_NuGetTargetFallbackMoniker);native,Version=v0.0</_NuGetTargetFallbackMoniker>
+    </PropertyGroup>
+</Project>

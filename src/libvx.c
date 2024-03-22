@@ -97,7 +97,7 @@ static vx_log_level av_to_vx_log_level(const int level)
 	}
 }
 
-static void vx_log_set_cb(vx_log_callback cb)
+void vx_log_set_cb(vx_log_callback cb)
 {
 	log_cb = cb;
 }
@@ -115,7 +115,7 @@ static void vx_log_cb(const void* avcl, int level, const char* fmt, void* vl)
 
 	const char message[LOG_TRACE_BUFSIZE] = { NULL };
 
-	if (vsprintf_s(&message, LOG_TRACE_BUFSIZE, fmt, vl) > 0) {
+	if (vsnprintf(&message, sizeof(message), fmt, vl) > 0) {
 		log_cb(message, av_to_vx_log_level(level));
 	}
 }
@@ -354,6 +354,84 @@ cleanup:
 	return err;
 }
 
+
+/// <summary>
+/// Retrieve basic video properties.
+/// This will advance the demuxer to the end of the file, so it will need
+/// resetting if the video is to be read again.
+/// </summary>
+static vx_error vx_get_properties(const vx_video* video, struct vx_video_info* out_video_info)
+{
+	const int EXCLUDED_PACKET_FLAGS = AV_PKT_FLAG_CORRUPT | AV_PKT_FLAG_DISCARD | AV_PKT_FLAG_DISPOSABLE;
+	int64_t first_timestamp = AV_NOPTS_VALUE;
+	int64_t last_timestamp = AV_NOPTS_VALUE;
+	int frame_count = 0;
+
+	AVPacket* packet = av_packet_alloc();
+	if (!packet) {
+		return VX_ERR_ALLOCATE;
+	}
+
+	// Iterate through all the data packets (frames) in the video to
+	// get a good idea of what can actually be read from the file
+	while (av_read_frame(video->fmt_ctx, packet) == 0) {
+		// Ignore packets that are not from the selected stream
+		// or are marked as corrupt or discarded
+		if (packet->stream_index == video->video_stream && !(packet->flags & EXCLUDED_PACKET_FLAGS)) {
+			// Ensure the timestamp won't overflow
+			int64_t rescaled_timestamp = av_rescale_rnd(packet->dts, TICKS_PER_SECOND, 1, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
+
+			// Use decoded timestamp since presentation timestamp is not
+			// always available, and may be out of order
+			if (rescaled_timestamp > last_timestamp)
+				last_timestamp = packet->dts;
+
+			if (first_timestamp == AV_NOPTS_VALUE)
+				first_timestamp = last_timestamp;
+
+			frame_count++;
+		}
+
+		av_packet_unref(packet);
+	}
+
+	av_packet_unref(packet);
+	av_packet_free(&packet);
+
+	// Do the best we can to estimate the frame rate and duration, if required
+	const AVStream* video_stream = video->fmt_ctx->streams[video->video_stream];
+	AVRational frame_rate = video_stream->avg_frame_rate;
+	int64_t duration = llabs(last_timestamp - first_timestamp) > 0 || video_stream->duration == AV_NOPTS_VALUE
+		? last_timestamp - first_timestamp
+		: video_stream->duration;
+
+	if (frame_rate.num == 0 || frame_rate.den == 0) {
+		av_reduce(
+			&frame_rate.num,
+			&frame_rate.den,
+			frame_count * (int64_t)video_stream->time_base.den,
+			duration * (int64_t)video_stream->time_base.num,
+			60000);
+	}
+
+	double duration_seconds = duration > 0
+		? (double)duration * av_q2d(video_stream->time_base)
+		: frame_count / av_q2d(frame_rate);
+
+	out_video_info->width = vx_get_width(video);
+	out_video_info->height = vx_get_height(video);
+	out_video_info->adjusted_width = vx_get_adjusted_width(video);
+	out_video_info->adjusted_height = vx_get_adjusted_height(video);
+	out_video_info->frame_count = frame_count;
+	out_video_info->frame_rate = (float)av_q2d(frame_rate);
+	out_video_info->duration = (float)duration_seconds;
+	out_video_info->has_audio = video->audio_codec_ctx != NULL;
+	out_video_info->audio_sample_rate = video->audio_codec_ctx ? video->audio_codec_ctx->sample_rate : 0;
+	out_video_info->audio_channels = video->audio_codec_ctx ? video->audio_codec_ctx->ch_layout.nb_channels : 0;
+
+	return VX_ERR_SUCCESS;
+}
+
 static vx_error vx_open_internal(vx_video** video, const char* filename, const vx_video_options options)
 {
 	if (!initialized) {
@@ -534,83 +612,6 @@ vx_error vx_get_frame_rate(const vx_video* video, float* out_fps)
 		return VX_ERR_FRAME_RATE;
 
 	*out_fps = (float)av_q2d(rate);
-	return VX_ERR_SUCCESS;
-}
-
-/// <summary>
-/// Retrieve basic video properties.
-/// This will advance the demuxer to the end of the file, so it will need
-/// resetting if the video is to be read again.
-/// </summary>
-vx_error vx_get_properties(const vx_video* video, struct vx_video_info* out_video_info)
-{
-	const int EXCLUDED_PACKET_FLAGS = AV_PKT_FLAG_CORRUPT | AV_PKT_FLAG_DISCARD | AV_PKT_FLAG_DISPOSABLE;
-	int64_t first_timestamp = AV_NOPTS_VALUE;
-	int64_t last_timestamp = AV_NOPTS_VALUE;
-	int frame_count = 0;
-
-	AVPacket* packet = av_packet_alloc();
-	if (!packet) {
-		return VX_ERR_ALLOCATE;
-	}
-
-	// Iterate through all the data packets (frames) in the video to
-	// get a good idea of what can actually be read from the file
-	while (av_read_frame(video->fmt_ctx, packet) == 0) {
-		// Ignore packets that are not from the selected stream
-		// or are marked as corrupt or discarded
-		if (packet->stream_index == video->video_stream && !(packet->flags & EXCLUDED_PACKET_FLAGS)) {
-			// Ensure the timestamp won't overflow
-			int64_t rescaled_timestamp = av_rescale_rnd(packet->dts, TICKS_PER_SECOND, 1, AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX);
-
-			// Use decoded timestamp since presentation timestamp is not
-			// always available, and may be out of order
-			if (rescaled_timestamp > last_timestamp)
-				last_timestamp = packet->dts;
-			
-			if (first_timestamp == AV_NOPTS_VALUE)
-				first_timestamp = last_timestamp;
-
-			frame_count++;
-		}
-
-		av_packet_unref(packet);
-	}
-
-	av_packet_unref(packet);
-	av_packet_free(&packet);
-
-	// Do the best we can to estimate the frame rate and duration, if required
-	const AVStream* video_stream = video->fmt_ctx->streams[video->video_stream];
-	AVRational frame_rate = video_stream->avg_frame_rate;
-	int64_t duration = llabs(last_timestamp - first_timestamp) > 0 || video_stream->duration == AV_NOPTS_VALUE
-		? last_timestamp - first_timestamp
-		: video_stream->duration;
-
-	if (frame_rate.num == 0 || frame_rate.den == 0) {
-		av_reduce(
-			&frame_rate.num,
-			&frame_rate.den,
-			frame_count * (int64_t)video_stream->time_base.den,
-			duration * (int64_t)video_stream->time_base.num,
-			60000);
-	}
-
-	double duration_seconds = duration > 0
-		? (double)duration * av_q2d(video_stream->time_base)
-		: frame_count / av_q2d(frame_rate);
-
-	out_video_info->width = vx_get_width(video);
-	out_video_info->height = vx_get_height(video);
-	out_video_info->adjusted_width = vx_get_adjusted_width(video);
-	out_video_info->adjusted_height = vx_get_adjusted_height(video);
-	out_video_info->frame_count = frame_count;
-	out_video_info->frame_rate = (float)av_q2d(frame_rate);
-	out_video_info->duration = (float)duration_seconds;
-	out_video_info->has_audio = video->audio_codec_ctx != NULL;
-	out_video_info->audio_sample_rate = video->audio_codec_ctx ? video->audio_codec_ctx->sample_rate : 0;
-	out_video_info->audio_channels = video->audio_codec_ctx ? video->audio_codec_ctx->ch_layout.nb_channels : 0;
-
 	return VX_ERR_SUCCESS;
 }
 
@@ -832,7 +833,7 @@ bool vx_frame_has_image(const AVFrame* frame)
 	return frame->pict_type != AV_PICTURE_TYPE_NONE || (frame->width > 0 && frame->height > 0 && frame->nb_samples == 0);
 }
 
-void* vx_frame_get_video_buffer(vx_frame* frame, int* out_buffer_size)
+void* vx_frame_get_video_buffer(const vx_frame* frame, int* out_buffer_size)
 {
 	int av_pixfmt = vx_to_av_pix_fmt(frame->pix_fmt);
 	*out_buffer_size = av_image_get_buffer_size(av_pixfmt, frame->width, frame->height, 1) + FRAME_BUFFER_PADDING;
@@ -908,7 +909,7 @@ static vx_error vx_decode_next_packet(vx_video* me, AVPacket* packet, AVCodecCon
 	return ret;
 }
 
-static vx_error vx_decode_frame(vx_video* me, AVPacket* packet, static AVFrame* out_frame_buffer[FRAME_QUEUE_SIZE], int* out_frame_count)
+static vx_error vx_decode_frame(vx_video* me, AVPacket* packet, AVFrame* out_frame_buffer[FRAME_QUEUE_SIZE], int* out_frame_count)
 {
 	vx_error ret = VX_ERR_UNKNOWN;
 	AVCodecContext* codec = NULL;
@@ -968,7 +969,7 @@ static double vx_frame_metadata_as_double(const AVFrame* av_frame, const char* k
 	const AVDictionaryEntry* entry = av_dict_get(av_frame->metadata, key, NULL, AV_DICT_MATCH_CASE);
 
 	if (entry) {
-		sscanf_s(entry->value, "%lf", &value);
+		sscanf(entry->value, "%lf", &value);
 	}
 
 	return value == INFINITY || value == -INFINITY

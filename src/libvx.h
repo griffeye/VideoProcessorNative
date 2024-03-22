@@ -5,8 +5,15 @@
 extern "C" {
 #endif
 
+#ifdef _MSC_VER
+	//  Microsoft
 #define VX_DECLSPEC __declspec(dllexport)
 #define VX_CDECL __cdecl
+#else
+	//  GCC
+#define VX_DECLSPEC __attribute__((visibility("default")))
+#define VX_CDECL __attribute__((cdecl))
+#endif
 
 #define FRAME_QUEUE_SIZE 32
 
@@ -182,8 +189,8 @@ VX_DECLSPEC void VX_CDECL vx_frame_destroy(vx_frame* frame);
 
 VX_DECLSPEC vx_error VX_CDECL vx_frame_step(vx_video* video, vx_frame_info* frame_info);
 VX_DECLSPEC vx_error VX_CDECL vx_frame_transfer_data(const vx_video* video, vx_frame* frame);
-VX_DECLSPEC void* VX_CDECL vx_frame_get_video_buffer(vx_frame* frame, int* out_buffer_size);
-VX_DECLSPEC void* VX_CDECL vx_frame_get_audio_buffer(vx_frame* frame, int* out_sample_count);
+VX_DECLSPEC void* VX_CDECL vx_frame_get_video_buffer(const vx_frame* frame, int* out_buffer_size);
+VX_DECLSPEC void* VX_CDECL vx_frame_get_audio_buffer(const vx_frame* frame, int* out_sample_count);
 VX_DECLSPEC vx_audio_info VX_CDECL vx_frame_get_audio_info(const vx_frame* frame);
 VX_DECLSPEC vx_scene_info VX_CDECL vx_frame_get_scene_info(const vx_frame* frame);
 
