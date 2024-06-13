@@ -6,13 +6,13 @@ extern "C" {
 #endif
 
 #ifdef _MSC_VER
-	//  Microsoft
+//  Microsoft
 #define VX_DECLSPEC __declspec(dllexport)
 #define VX_CDECL __cdecl
 #else
-	//  GCC
+//  GCC
 #define VX_DECLSPEC __attribute__((visibility("default")))
-#define VX_CDECL __attribute__((__cdecl__))
+#define VX_CDECL
 #endif
 
 #define FRAME_QUEUE_SIZE 32
@@ -118,6 +118,43 @@ struct av_audio_params
 	enum AVSampleFormat sample_format;
 	int sample_rate;
 	AVRational time_base;
+};
+
+struct vx_audio_info
+{
+	double peak_level;
+	double rms_level;
+	double rms_peak;
+};
+
+struct vx_scene_info
+{
+	double difference;
+	double scene_score;
+	bool new_scene;
+};
+
+struct vx_frame_info
+{
+	int width;
+	int height;
+	double timestamp;
+	vx_frame_flag flags;
+};
+
+struct vx_frame
+{
+	int width;
+	int height;
+	vx_pix_fmt pix_fmt;
+	int sample_count;
+	int max_samples;
+
+	vx_audio_info audio_info;
+	vx_scene_info scene_info;
+
+	uint8_t** audio_buffer;
+	void* buffer;
 };
 
 struct vx_video_options

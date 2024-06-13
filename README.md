@@ -23,10 +23,21 @@ Need to have dotnet CLI installed and some build utils
 `RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y build-essential cmake zip`
 
 ```
-dotnet restore Griffeye.VideoProcessor.Native.csproj --packages Packages
+dotnet restore Griffeye.VideoProcessor.Native.csproj --configfile NuGet.Config --packages Packages
 cmake -S . -B build_linux/
 cmake --build build_linux/ --config [Release|Debug]
+```
 
+### Examples
+Projects from the `/examples` directory can be built by adding `-DBUILD_EXAMPLES=ON` to the above cmake command:
+```
+cmake -S . -B build_linux/ -DBUILD_EXAMPLES=ON
+```
+
+### Testing
+The project can be run with Valgrind via the CLI example project:
+```
+valgrind --leak-check=full libvxcli video.mp4
 ```
 
 ## Architecture

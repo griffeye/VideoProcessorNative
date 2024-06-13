@@ -31,69 +31,32 @@
 static bool initialized = false;
 static vx_log_callback log_cb = NULL;
 
-struct vx_audio_info
-{
-	double peak_level;
-	double rms_level;
-	double rms_peak;
-};
-
-struct vx_scene_info
-{
-	double difference;
-	double scene_score;
-	bool new_scene;
-};
-
-struct vx_frame
-{
-	int width;
-	int height;
-	vx_pix_fmt pix_fmt;
-	int sample_count;
-	int max_samples;
-
-	vx_audio_info audio_info;
-	vx_scene_info scene_info;
-
-	uint8_t** audio_buffer;
-	void* buffer;
-};
-
-struct vx_frame_info
-{
-	int width;
-	int height;
-	double timestamp;
-	vx_frame_flag flags;
-};
-
 static vx_log_level av_to_vx_log_level(const int level)
 {
 	// See: lavu_log_constants
 	switch (level) {
-	case AV_LOG_QUIET:
-		return VX_LOG_NONE;
+		case AV_LOG_QUIET:
+			return VX_LOG_NONE;
 
-	case AV_LOG_PANIC:
-	case AV_LOG_FATAL:
-		return VX_LOG_FATAL;
+		case AV_LOG_PANIC:
+		case AV_LOG_FATAL:
+			return VX_LOG_FATAL;
 
-	case AV_LOG_ERROR:
-		return VX_LOG_ERROR;
+		case AV_LOG_ERROR:
+			return VX_LOG_ERROR;
 
-	case AV_LOG_WARNING:
-		return VX_LOG_WARNING;
+		case AV_LOG_WARNING:
+			return VX_LOG_WARNING;
 
-	case AV_LOG_INFO:
-	case AV_LOG_VERBOSE:
-		return VX_LOG_INFO;
+		case AV_LOG_INFO:
+		case AV_LOG_VERBOSE:
+			return VX_LOG_INFO;
 
-	case AV_LOG_DEBUG:
-		return VX_LOG_DEBUG;
+		case AV_LOG_DEBUG:
+			return VX_LOG_DEBUG;
 
-	default:
-		return VX_LOG_NONE;
+		default:
+			return VX_LOG_NONE;
 	}
 }
 
@@ -558,12 +521,21 @@ void vx_close(vx_video* video)
 		swr_free(&video->swr_ctx);
 
 	if (video->fmt_ctx)
-		avformat_free_context(video->fmt_ctx);
+		avformat_close_input(&video->fmt_ctx);
 
 	for (int i = 0; i < video->frame_queue_count; i++) {
 		av_frame_unref(video->frame_queue[i]);
 		av_frame_free(&video->frame_queue[i]);
 	}
+
+	if (video->hw_device_ctx)
+		av_buffer_unref(&video->hw_device_ctx);
+
+	if (video->audio_codec_ctx)
+        avcodec_free_context(&video->audio_codec_ctx);
+
+    if (video->video_codec_ctx)
+        avcodec_free_context(&video->video_codec_ctx);
 
 	free(video);
 }
